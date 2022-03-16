@@ -1,0 +1,96 @@
+
+resource "aws_vpc" "vpc1"{
+cidr_block = var.cidr_bock
+
+tags = {
+ Name = "vpc1"
+}
+}
+resource "aws_subnet" "publicsubnet" {
+  vpc_id = aws_vpc.vpc1.id
+  cidr_block  = var.pubsubnet_cidr
+  availability_zone = "us-east-1a"
+}
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.vpc1.id
+}
+
+resource "aws_route_table" "publicrt" {
+    vpc_id = aws_vpc.vpc1.id
+route {
+        cidr_block = "0.0.0.0/0"
+        gateway_id = aws_internet_gateway.igw.id
+    }
+}
+resource "aws_route_table_association" "rt_associate_public" {
+    subnet_id = aws_subnet.pubsubnet.id
+    route_table_id = aws_route_table.publicrt.id
+}
+
+resource "aws_subnet" "privatesubnet" {
+  vpc_id = aws_vpc.vpc1.id
+  cidr_block  = var.privsubnet_cidr
+  availability_zone = "us-east-1b"
+}
+resource "aws_nat_gateway" "natgw" {
+  allocation_id = aws_eip.eip.id
+  subnet_id     = aws_subnet.pubsubnet.id
+}
+resource "aws_route_table" "privatert" {
+    vpc_id = aws_vpc.vpc1.id
+route {
+        cidr_block = "0.0.0.0/0"
+        nat_gateway_id = aws_nat_gateway.natgw.id
+    }
+    }
+
+resource "aws_route_table_association" "rt_associate_private" {
+    subnet_id = aws_subnet.privasubnet.id
+    route_table_id = aws_route_table.privatert.id
+}
+resource "aws_eip" "eip" {
+  vpc = true
+}
+
+resource "aws_security_group" "security_group" {
+vpc_id      = aws_vpc.vpc1.id
+# Inbound Rules
+  # HTTP access from anywhere
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+resource "aws_iam_instance_profile" "resources-iam-profile" {
+name = "ec2_profile"
+role = aws_iam_role.resources-iam-role.name
+}
+resource "aws_iam_role" "resources-iam-role" {
+name        = "ssm-role"
+description = "The role for the developer resources EC2"
+assume_role_policy = <<EOF
+{
+"Version": "2012-10-17",
+"Statement": {
+"Effect": "Allow",
+"Principal": {"Service": "ec2.amazonaws.com"},
+"Action": "sts:AssumeRole"
+}
+}
+resource "aws_iam_role_policy_attachment" "resources-ssm-policy" {
+role       = aws_iam_role.resources-iam-role.name
+policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+
+
+resource "aws_instance" "privateinstance" {
+  ami           = "ami-087c17d1fe0178315"
+  instance_type = "t2.micro"
+  key_name = "tests"
+iam_instance_profile = aws_iam_instance_profile.resources-iam-  profile.name 
+  vpc_security_group_ids = [aws_security_group.security_group.id]
+  subnet_id = aws_subnet.privatesubnet.id
+  usrer_data = "${file("script.sh")}"
+}
